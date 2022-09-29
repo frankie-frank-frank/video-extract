@@ -1,7 +1,7 @@
 import { env } from "./src/env/server.mjs";
 import transpile from "next-transpile-modules"
 
-const withTM = transpile(["@vx/prisma"])
+const withTM = transpile(["@vx/prisma", "@vx/worker"])
 
 /**
  * Don't be scared of the generics here.

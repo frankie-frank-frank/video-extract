@@ -3,6 +3,7 @@ import fs from "fs-extra";
 import ytdl from "ytdl-core";
 import path from "path";
 import { spawnSync } from "child_process";
+import { videoQueue } from "@vx/worker";
 
 const FILES_DIR = path.join(__dirname, "../files");
 
@@ -45,11 +46,70 @@ async function downloadClips() {
   });
 }
 
+async function queueDownloadVideos() {
+  return videoQueue.process(async (job) => {
+    //update db:
+    const jobState = await job.getState();
+    if (!["waiting", "delayed"].includes(jobState)) return;
+    const { originUrl, videoId } = job.data;
+    const info = await ytdl.getInfo(originUrl);
+    const {
+      videoDetails: { title },
+    } = info;
+    await prisma.video.update({
+      where: { uuid: videoId },
+      data: { title },
+    });
+
+    const filePath = path.join(FILES_DIR, `${originUrl}.mp4`);
+    await prisma.video.update({
+      where: { uuid: videoId },
+      data: { fileUrl: filePath },
+    });
+
+    const stream = ytdl(originUrl);
+    stream.pipe(fs.createWriteStream(filePath));
+    stream.on("progress", async (_, downloaded, total) => {
+      const progress = Math.ceil((downloaded / total) * 100);
+
+      try {
+        await prisma.video.update({
+          where: { uuid: videoId },
+          data: { progress },
+        });
+      } catch (e) {
+        /* it's ok if the update doesn't happen successfully */
+      }
+    });
+    stream.on("error", async () => {
+      await prisma.video.update({
+        where: { uuid: videoId },
+        data: { failed: true },
+      });
+      job.moveToFailed({ message: "Error saving video in file system" });
+    });
+    stream.on("end", async () => {
+      try {
+        await prisma.video.update({
+          where: { uuid: videoId },
+          data: {
+            progress: 100,
+            fileUrl: filePath,
+          },
+        });
+      } catch (e) {}
+      job.moveToCompleted();
+    });
+  });
+}
+
 async function downloadVideos() {
   return new Promise<void>(async (res) => {
     const video = await prisma.video.findFirst({
       where: {
-        progress: 0,
+        progress: {
+          lt: 100
+        },
         failed: false,
       },
     });
@@ -142,6 +202,7 @@ export async function startDownloader() {
 
   while (true) {
     await downloadVideos();
+    // await queueDownloadVideos();
     await downloadClips();
 
     // if a video or clip is deleted from the database,

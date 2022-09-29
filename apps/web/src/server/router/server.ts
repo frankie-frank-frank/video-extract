@@ -1,6 +1,7 @@
 import { createRouter } from "./context";
 import { prisma } from "@vx/prisma/client";
 import { z } from "zod";
+import {videoQueue, clipQueue} from "@vx/worker"
 
 export const videoRouter = createRouter()
   .query("videos", {
@@ -39,6 +40,7 @@ export const videoRouter = createRouter()
           originUrl: input.url,
         },
       });
+      await videoQueue.add({originUrl: input.url, videoId: video.uuid})
       return video;
     },
   })
@@ -50,6 +52,7 @@ export const videoRouter = createRouter()
       title: z.string().nullable(),
     }),
     async resolve({ input }) {
+      await clipQueue.add({videoId: input.videoUuid, startTime: input.startTime, endTime: input.endTime, title: input.title})
       const videoClip = await prisma.videoClip.create({
         data: {
           videoId: input.videoUuid,
