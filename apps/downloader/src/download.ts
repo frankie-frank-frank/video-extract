@@ -46,10 +46,10 @@ async function downloadClips() {
   });
 }
 
-async function queueDownloadVideos() {
-  return videoQueue.process(async (job) => {
+videoQueue.process(async (job) => {
     //update db:
     const jobState = await job.getState();
+    console.log(job)
     if (!["waiting", "delayed"].includes(jobState)) return;
     const { originUrl, videoId } = job.data;
     const info = await ytdl.getInfo(originUrl);
@@ -100,10 +100,9 @@ async function queueDownloadVideos() {
       } catch (e) {}
       job.moveToCompleted();
     });
-  });
-}
+})
 
-async function downloadVideos() {
+function downloadVideos() {
   return new Promise<void>(async (res) => {
     const video = await prisma.video.findFirst({
       where: {
@@ -201,8 +200,7 @@ export async function startDownloader() {
   console.log("Downloader is running");
 
   while (true) {
-    await downloadVideos();
-    // await queueDownloadVideos();
+    // await downloadVideos();
     await downloadClips();
 
     // if a video or clip is deleted from the database,
